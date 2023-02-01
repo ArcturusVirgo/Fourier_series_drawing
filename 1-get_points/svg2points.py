@@ -6,8 +6,8 @@ from tqdm import tqdm
 
 # 主要参数
 point_num = 300
-file_name = '鹿头.svg'
-path_index = 1
+file_name = 'github.svg'
+path_index = 0
 
 # 放数据
 data_x = []

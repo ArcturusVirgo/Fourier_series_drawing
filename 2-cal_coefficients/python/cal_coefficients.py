@@ -39,7 +39,7 @@ def sum_fourier(x, data_x, data_y, N=25, int_step=0.01):
 
 
 # 导入初始数据
-file_name = '鹿头.svg'
+file_name = 'github.svg'
 data = pd.read_csv(f'../../1-get_points/result/{file_name.split(".")[0]}.txt', sep='\s+', names=['t', 'x', 'y'])
 
 t_cal = np.linspace(0, 2 * np.pi, 200)
