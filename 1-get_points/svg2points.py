@@ -5,7 +5,7 @@ import svgpathtools
 from tqdm import tqdm
 
 # 主要参数
-point_num = 300
+point_num = 500
 file_name = 'github.svg'
 path_index = 0
 

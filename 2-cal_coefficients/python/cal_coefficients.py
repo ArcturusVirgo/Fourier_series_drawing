@@ -5,7 +5,7 @@ from scipy.interpolate import interp1d
 from tqdm import tqdm
 
 
-def sum_fourier(x, data_x, data_y, N=25, int_step=0.01):
+def sum_fourier(x, data_x, data_y, N=100, int_step=0.0005):
     # 常用的插值算法 ["linear", "cubic", "quadratic", "nearest"]
     # 二次插值
     f = interp1d(data_x, data_y, kind='quadratic')
@@ -42,7 +42,7 @@ def sum_fourier(x, data_x, data_y, N=25, int_step=0.01):
 file_name = 'github.svg'
 data = pd.read_csv(f'../../1-get_points/result/{file_name.split(".")[0]}.txt', sep='\s+', names=['t', 'x', 'y'])
 
-t_cal = np.linspace(0, 2 * np.pi, 200)
+t_cal = np.linspace(0, 2 * np.pi, 500)
 x_cal = []
 y_cal = []
 data_json = {}
