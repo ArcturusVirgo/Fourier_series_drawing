@@ -13,13 +13,20 @@ from win32api import GetSystemMetrics
 
 
 class Svg2points:
-    def __init__(self, filename, point_num, path_index=0, show=False):
+    def __init__(self, filename, point_num, path_index=1, show=False):
+        """
+
+        :param filename: svg文件名
+        :param point_num: 生成的点的数量
+        :param path_index: svg第几个标签
+        :param show: 是否展示提取的点
+        """
         self.point_num = point_num
         self.file_name = filename
-        self.path_index = path_index
+        self.path_index = path_index - 1
 
         # 执行进程
-        self.path = svgpathtools.svg2paths(f'./svg/{self.file_name}.svg')[0][path_index]
+        self.path = svgpathtools.svg2paths(f'./svg/{self.file_name}.svg')[0][self.path_index]
         self.data = self.get_points()
         self.save_points()
         if show:
@@ -31,7 +38,7 @@ class Svg2points:
         total_length = self.path.length()  # 路径总长
         lengths = np.linspace(0, total_length, self.point_num)  # 划分路径
         print('正在获取点...')
-        with alive_bar(self.point_num) as bar:
+        with alive_bar(self.point_num, force_tty=True) as bar:
             for length in lengths:
                 t = self.path.ilength(length)
                 data_x.append(self.path.point(t).real)
@@ -60,11 +67,18 @@ class Svg2points:
 
 
 class CalCoeff:
-    def __init__(self, svg_obj, point_num, vec_num=20, int_step=0.01):
+    def __init__(self, svg_obj, point_num, vec_num=20, int_num=200):
+        """
+
+        :param svg_obj: Svg2points对象
+        :param point_num: 最终得出的点的数量
+        :param vec_num: 向量个数
+        :param int_num: 积分取的点的数量
+        """
         self.svg = svg_obj
         self.point_num = point_num
         self.vec_num = vec_num
-        self.int_step = int_step
+        self.int_num = int_num
         self.t_cal = np.linspace(0, 2 * np.pi, self.point_num)
         self.x_cal = []
         self.y_cal = []
@@ -76,12 +90,11 @@ class CalCoeff:
     def cal(self):
         data_json = {}
         print('正在计算系数...')
-        with alive_bar(self.point_num) as bar:
+        with alive_bar(self.point_num, force_tty=True) as bar:
             for v in self.t_cal:
-                temp_x = self.sum_fourier(v, self.svg.data['t'], self.svg.data['x'])
-                temp_y = self.sum_fourier(v, self.svg.data['t'], self.svg.data['y'])
-                self.x_cal.append(sum(temp_x))
-                self.y_cal.append(sum(temp_y))
+                temp_x, temp_y = self.f_fourier(v, int(self.vec_num / 2), self.svg.data)
+                self.x_cal.append(list(temp_x))
+                self.y_cal.append(list(temp_y))
                 data_json[v] = {'x': temp_x, 'y': temp_y}
                 bar()
         return data_json
@@ -90,37 +103,30 @@ class CalCoeff:
         data_json = pd.DataFrame(self.data_json)
         data_json.to_json(f'./json/{self.svg.file_name}.json')
 
-    def sum_fourier(self, x, data_x, data_y):
+    def f_fourier(self, x, n_vectors, data):
         # 常用的插值算法 ["linear", "cubic", "quadratic", "nearest"]
         # 二次插值
-        f = interp1d(data_x, data_y, kind='quadratic')
+        f_x = interp1d(data['t'], data['x'], kind='linear')
+        f_y = interp1d(data['t'], data['y'], kind='linear')
 
-        def f_f(x_, placeholder):
-            return f(x_)
+        def f_r(tt):
+            return np.sqrt(f_x(tt) ** 2 + f_y(tt) ** 2)
 
-        def f_sin(x_, n_):
-            return f(x_) * np.sin(n_ * x_)
+        def f_theta(tt):
+            return np.arctan2(f_y(tt), f_x(tt))
 
-        def f_cos(x_, n_):
-            return f(x_) * np.cos(n_ * x_)
+        def f(tt):
+            return f_r(tt) * np.exp(1j * f_theta(tt))
 
-        def int_Simpson(fun, n_, a=0, b=2 * np.pi):
-            N_ = int((b - a) / self.int_step)
-            I_ff = fun(a, n_) + fun(b, n_)
-            xx = np.linspace(a, b, N_)[:-1]
-            I_ff += 2 * fun(xx, n_).sum()
-            I_ff += 4 * fun(xx + self.int_step / 2, n_).sum()
-            I_ff *= self.int_step / 6
-            return I_ff
+        t_int = np.linspace(0, 2 * np.pi, self.int_num)[1:]
+        delta_t = t_int[1] - t_int[0]
+        res = {}
+        for n in range(-n_vectors, n_vectors):
+            f_n = (f(t_int) * np.exp(-1j * n * t_int) * delta_t).sum() / (2 * np.pi)
 
-        a0 = int_Simpson(f_f, -1) / np.pi
-
-        result = [a0 / 2]
-        for n in range(1, self.vec_num):  # 这里代表叠加多少个波
-            an = int_Simpson(f_cos, n) / np.pi
-            bn = int_Simpson(f_sin, n) / np.pi
-            result.append(an * np.cos(n * x) + bn * np.sin(n * x))
-        return result
+            res[n] = f_n * np.exp(1j * n * x)
+        res = np.array(sorted(res.items(), key=lambda x: abs(x[0])))[:, 1]
+        return res.real, res.imag
 
 
 class Grid:
@@ -160,10 +166,21 @@ class Grid:
 
 
 class Vectors:
-    def __init__(self, window_size, screen, x_list, y_list, tracker_, color=(255, 255, 255)):
+    def __init__(self, window_size, screen, x_list, y_list, tracker_, c_vec='#168eea', c_cir='#fff9ea'):
+        """
+
+        :param window_size: 屏幕大小
+        :param screen: 要绘制的表面
+        :param x_list:
+        :param y_list:
+        :param tracker_: Tacker 对象
+        :param c_vec: 向量颜色
+        :param c_cir: 圆的颜色
+        """
         self.window_size = window_size
         self.screen = screen
-        self.color = color
+        self.c_vec = c_vec
+        self.c_cir = c_cir
         self.tracker = tracker_
         self.x_list = x_list
         self.y_list = y_list
@@ -184,7 +201,11 @@ class Vectors:
 
     def draw(self):
         for i in range(len(self.points) - 1):
-            self.arrow(self.screen, self.color, self.color, self.points[i], self.points[i + 1])
+            self.arrow(self.screen, self.c_vec, self.c_vec, self.points[i], self.points[i + 1])
+            pygame.draw.circle(self.screen, self.c_cir, self.points[i], np.sqrt(
+                (self.points[i + 1][0] - self.points[i][0]) ** 2 +
+                (self.points[i + 1][1] - self.points[i][1]) ** 2
+            ), width=1)
         self.tracker.add(self.end_point)
 
     @staticmethod
@@ -195,16 +216,16 @@ class Vectors:
         line_length = math.sqrt(math.pow(end[1] - start[1], 2) + math.pow(end[0] - start[0], 2))
         trirad = int(line_length * 1 / 10)  # 1/10数值可更换其他数值，trirad这里根据所绘箭头长度实现动态缩放其箭头三角的大小(且有上下限阈值)
 
-        if trirad < 5:  # 增加下限阈值
+        if trirad < 8:  # 增加下限阈值
             trirad = 8
 
-        if trirad > 10:
-            trirad = 10  # 增加上限阈值
+        if trirad > 20:
+            trirad = 20  # 增加上限阈值
         rad = math.pi / 160
         rowrad = 180  # 决定箭头三角形的顶角的大小，该值越大，顶角越小，也可自行修改数值
 
         # 使用aaline保证不会出现锯齿
-        pygame.draw.aaline(screen, lcolor, start, end)
+        pygame.draw.line(screen, lcolor, start, end, width=2)
         rotation = (math.atan2(start[1] - end[1], end[0] - start[0])) + math.pi / 2
 
         # 使用终点坐标作为箭头三角形的顶点，而不是原文中继续向end终点方向延伸，下同
@@ -225,7 +246,13 @@ class Vectors:
 
 
 class Tracker:
-    def __init__(self, screen, total_num, color=(249, 249, 87)):
+    def __init__(self, screen, total_num, color='#76b852'):
+        """
+
+        :param screen: 表面
+        :param total_num: 允许的最多的点数
+        :param color: 颜色
+        """
         self.screen = screen
         self.color = color
         self.points = []
@@ -239,25 +266,36 @@ class Tracker:
         if len(self.points) >= self.total_num:
             self.points.pop(-1)
 
-    def draw(self, r=4, disappear=10):
-        for i, point in enumerate(self.points):
-            translucence_surface = pygame.Surface((2 * r, 2 * r))
-            translucence_surface.fill((0, 0, 0))
-            translucence_surface.set_colorkey((0, 0, 0))
-            pygame.draw.circle(translucence_surface, self.color, (r, r), r)
-            if i <= self.total_num * (disappear - 1) / disappear:
-                translucence_surface.set_alpha(255)
-            else:
-                # translucence_surface.set_alpha(255 - int(i / self.total_num * 100))
-                translucence_surface.set_alpha(
-                    255 - int((disappear * i / self.total_num - (disappear - 1)) * 255))
-            self.screen.blit(translucence_surface,
-                             (point[0] - r, (point[1] + r)))
+    def draw(self, w=3, disappear=10):
+        if len(self.points) > 2:
+            for i in range(len(self.points) - 1):
+                width = abs(self.points[i][0] - self.points[i + 1][0])
+                height = abs(self.points[i][1] - self.points[i + 1][1])
+                translucence_surface = pygame.Surface((2 * width + 10, 2 * height + 10))
+                translucence_surface.fill((0, 0, 0))
+                translucence_surface.set_colorkey((0, 0, 0))
+                pygame.draw.line(translucence_surface, self.color, (width + 5, height + 5),
+                                 (self.points[i + 1][0] - self.points[i][0] + width + 5,
+                                  self.points[i + 1][1] - self.points[i][1] + height + 5), width=w)
+                if i <= self.total_num * (disappear - 1) / disappear:
+                    translucence_surface.set_alpha(255)
+                else:
+                    translucence_surface.set_alpha(
+                        255 - int((disappear * i / self.total_num - (disappear - 1)) * 255))
+                self.screen.blit(translucence_surface,
+                                 (self.points[i][0] - width, (self.points[i][1] - height)))
 
 
 class Visualization:
-
     def __init__(self, t, coefficient=None, recalculate=True, filename=None, times=-1):
+        """
+
+        :param t: 一个周期的持续时间
+        :param coefficient: CalCoeff对象
+        :param recalculate: 是否重新计算
+        :param filename: 如果不重新计算，要读取的数据的文件名
+        :param times: 一共持续几个周期，-1 代表无限循环
+        """
         self.window_size = (GetSystemMetrics(0), GetSystemMetrics(1))
         self.coeff = coefficient
         self.t = t
@@ -297,11 +335,17 @@ class Visualization:
 
         grid_surface = pygame.Surface(self.window_size, pygame.SRCALPHA, 32).convert_alpha()
         vec_surface = pygame.Surface(self.window_size, pygame.SRCALPHA, 32).convert_alpha()
+        vec_surface.set_alpha(100)
         tracker_surface = pygame.Surface(self.window_size, pygame.SRCALPHA, 32).convert_alpha()
 
         grid = Grid(grid_surface, self.window_size[0] / 2, self.window_size[1] / 2, 0, self.window_size[0], 0,
                     self.window_size[1])
         tracker = Tracker(tracker_surface, self.frame_num)
+        vec_obj = []
+        for i in range(self.frame_num):
+            temp_vec = Vectors(self.window_size, vec_surface, self.x_draw[i], self.y_draw[i],tracker)
+            vec_obj.append(temp_vec)
+
 
         frame_series = 0
         times = 1
@@ -315,12 +359,14 @@ class Visualization:
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         sys.exit()
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    if event.button == 3:
+                        sys.exit()
             vec_surface.fill((0, 0, 0, 0))
             tracker_surface.fill((0, 0, 0, 0))
             grid.draw_grid()
-            temp_vec = Vectors(self.window_size, vec_surface, self.x_draw[frame_series], self.y_draw[frame_series],
-                               tracker)
-            temp_vec.draw()
+
+            vec_obj[frame_series].draw()
 
             tracker.draw()
 
@@ -345,7 +391,7 @@ class Visualization:
 
 
 if __name__ == '__main__':
-    svg = Svg2points('antlers', 200, 1)
-    for vec in range(10, 30):
-        coeff = CalCoeff(svg, 200, vec_num=vec)
-        vis = Visualization(4, coeff, times=2)
+    svg = Svg2points('github', 200, 1, show=False)
+    # for vec in range(30, 40):
+    coeff = CalCoeff(svg, 300, vec_num=100)
+    vis = Visualization(10, coefficient=coeff, recalculate=True, filename='github', times=-1)
