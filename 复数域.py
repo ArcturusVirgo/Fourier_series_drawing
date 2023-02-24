@@ -105,7 +105,7 @@ class CalCoeff:
 
     def f_fourier(self, x, n_vectors, data):
         # 常用的插值算法 ["linear", "cubic", "quadratic", "nearest"]
-        # 二次插值
+        # 线性插值
         f_x = interp1d(data['t'], data['x'], kind='linear')
         f_y = interp1d(data['t'], data['y'], kind='linear')
 
@@ -343,13 +343,13 @@ class Visualization:
         tracker = Tracker(tracker_surface, self.frame_num)
         vec_obj = []
         for i in range(self.frame_num):
-            temp_vec = Vectors(self.window_size, vec_surface, self.x_draw[i], self.y_draw[i],tracker)
+            temp_vec = Vectors(self.window_size, vec_surface, self.x_draw[i], self.y_draw[i], tracker)
             vec_obj.append(temp_vec)
-
 
         frame_series = 0
         times = 1
         is_running = True
+        pygame.mouse.set_visible(False)
         while is_running:
             # 获取事件并逐类响应
             for event in pygame.event.get():
@@ -391,7 +391,18 @@ class Visualization:
 
 
 if __name__ == '__main__':
-    svg = Svg2points('github', 200, 1, show=False)
-    # for vec in range(30, 40):
-    coeff = CalCoeff(svg, 300, vec_num=100)
-    vis = Visualization(10, coefficient=coeff, recalculate=True, filename='github', times=-1)
+    svg = Svg2points('github', 100, 1, show=False)
+    coeff = CalCoeff(svg, 400, vec_num=100, int_num=500)
+    Visualization(10, coefficient=coeff, times=2)
+
+    svg = Svg2points('一键三连', 100, 1, show=False)
+    coeff = CalCoeff(svg, 400, vec_num=50, int_num=500)
+    Visualization(10, coefficient=coeff, times=2)
+
+    svg = Svg2points('一键三连', 100, 2, show=False)
+    coeff = CalCoeff(svg, 400, vec_num=50, int_num=500)
+    Visualization(10, coefficient=coeff, times=2)
+
+    svg = Svg2points('一键三连', 100, 3, show=False)
+    coeff = CalCoeff(svg, 400, vec_num=50, int_num=500)
+    Visualization(10, coefficient=coeff, times=2)
